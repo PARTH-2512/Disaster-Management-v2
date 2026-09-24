@@ -4,7 +4,7 @@ import { mlPredict, MlServiceError } from './mlClient.js';
 // ---------------------------------------------------------------------------
 // Sensor simulation — generates realistic monsoon-season readings
 //
-// NER REALISTIC RAINFALL RANGES (FIX-1.1):
+// HILLY-AREA REALISTIC RAINFALL RANGES (FIX-1.1):
 //   Normal monsoon day : rainfall_1h_mm  2–18 mm/hr
 //                        rainfall_24h_mm 15–120 mm/24h  (most days)
 //   Heavy event (15%)  : rainfall_1h_mm  18–40 mm/hr
@@ -53,8 +53,8 @@ export function simulateSensorFeed() {
     // rainfall_24h_mm: computed independently — NOT derived by multiplying rain1h × hours.
     // That old approach created unrealistic 24h totals by assuming peak 1h rate all day.
     // Instead use a realistic 24h accumulation range:
-    //   Heavy event: 120–280 mm/24h (genuine extreme for NER)
-    //   Normal monsoon: 15–120 mm/24h (typical NER monsoon day)
+    //   Heavy event: 120–280 mm/24h (genuine hilly-area extreme)
+    //   Normal monsoon: 15–120 mm/24h (typical hilly-area monsoon day)
     //   Non-monsoon: 2–25 mm/24h
     let rain24hBase;
     if (isHeavyEvent) {

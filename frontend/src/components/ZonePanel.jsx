@@ -34,8 +34,8 @@ export default function ZonePanel({ data, onClose }) {
     level: h.risk_level,
   }));
 
-  const handleAck = async (alertId) => {
-    await updateAlertStatus(alertId, 'Acknowledged', 'District Officer');
+  const handleStatus = async (alertId, status) => {
+    await updateAlertStatus(alertId, status, 'District Officer');
     fetchAll();
   };
 
@@ -124,10 +124,11 @@ export default function ZonePanel({ data, onClose }) {
                 {language === 'hi' ? a.message_hi : language === 'mz' ? a.message_mz : a.message_en}
               </div>
               <div style={{ fontSize: '0.68rem', color: 'var(--text-secondary)' }}>🛣 {a.affected_roads} · 🏘 {a.affected_villages}</div>
-              <button
-                style={{ marginTop: 6, padding: '3px 10px', background: 'var(--border)', border: '1px solid var(--border-bright)', borderRadius: 6, color: 'var(--text-secondary)', fontSize: '0.68rem', cursor: 'pointer' }}
-                onClick={() => handleAck(a.id)}
-              >✓ Acknowledge</button>
+              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginTop: 6 }}>
+                <button style={{ padding: '3px 8px', background: 'var(--border)', border: '1px solid var(--border-bright)', borderRadius: 6, color: 'var(--text-secondary)', fontSize: '0.68rem', cursor: 'pointer' }} onClick={() => handleStatus(a.id, 'Acknowledged')}>✓ Acknowledge</button>
+                <button style={{ padding: '3px 8px', background: 'var(--risk-high-bg)', border: '1px solid var(--risk-high)', borderRadius: 6, color: 'var(--risk-high)', fontSize: '0.68rem', cursor: 'pointer' }} onClick={() => handleStatus(a.id, 'Escalated')}>↗ Escalate</button>
+                <button style={{ padding: '3px 8px', background: 'var(--risk-critical-bg)', border: '1px solid var(--risk-critical)', borderRadius: 6, color: 'var(--risk-critical)', fontSize: '0.68rem', cursor: 'pointer' }} onClick={() => handleStatus(a.id, 'Closed')}>× Close</button>
+              </div>
             </div>
           ))}
         </div>

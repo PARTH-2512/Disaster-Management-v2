@@ -121,7 +121,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="NER Landslide Risk ML Service",
+    title="DHARA AI Landslide Risk ML Service",
     description="XGBoost inference service for landslide risk scoring (PS 26001)",
     version="2.0.0",
     lifespan=lifespan,

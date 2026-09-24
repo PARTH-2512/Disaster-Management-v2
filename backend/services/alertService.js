@@ -4,11 +4,11 @@ import { broadcast } from '../server.js';
 
 const TEMPLATES = {
   en: (zone, level, road, action) =>
-    `⚠️ LANDSLIDE ALERT — ${level} Risk at ${zone}. ${road ? `Avoid ${road}.` : ''} ${action}. Stay safe. — Sikkim DDMA`,
+    `⚠️ LANDSLIDE ALERT — ${level} Risk at ${zone}. ${road ? `Avoid ${road}.` : ''} ${action}. Stay safe. — DHARA AI`,
   hi: (zone, level, road, action) =>
-    `⚠️ भूस्खलन चेतावनी — ${zone} में ${level === 'Critical' ? 'अति गंभीर' : level === 'High' ? 'उच्च' : 'मध्यम'} खतरा। ${road ? `${road} से बचें।` : ''} ${action}। सावधान रहें — सिक्किम DDMA`,
+    `⚠️ भूस्खलन चेतावनी — ${zone} में ${level === 'Critical' ? 'अति गंभीर' : level === 'High' ? 'उच्च' : 'मध्यम'} खतरा। ${road ? `${road} से बचें।` : ''} ${action}। सावधान रहें — DHARA AI`,
   mz: (zone, level, road, action) =>
-    `⚠️ LUNGPHUM BEIDAWN — ${zone} ah ${level} lamzin. ${road ? `${road} zawn suh.` : ''} ${action}. Inzirtir rawh — Sikkim DDMA`,
+    `⚠️ LUNGPHUM BEIDAWN — ${zone} ah ${level} lamzin. ${road ? `${road} zawn suh.` : ''} ${action}. Inzirtir rawh — DHARA AI`,
 };
 
 const ACTIONS = {

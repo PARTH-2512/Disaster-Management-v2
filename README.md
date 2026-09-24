@@ -1,4 +1,4 @@
-# AI-Based Early Warning & Landslide Risk Monitoring System — NER
+# DHARA AI — Dynamic Hazard Assessment & Risk Alerts
 ## Problem Statement 26001 | MDoNER | Prototype v1.1 (Fix & Completion Phase)
 
 ---
