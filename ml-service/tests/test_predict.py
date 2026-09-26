@@ -1,15 +1,16 @@
-"""
-Tests for ml-service /predict endpoint.
-Run: pytest ml-service/tests/test_predict.py -v
-"""
-import sys
+"""API tests for the current flash-flood ML service contract."""
 from pathlib import Path
-import pytest
+import sys
 
-# Allow importing main without starting the server
+import joblib
+import pytest
+from fastapi.testclient import TestClient
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Test the core logic functions directly (no server needed)
+from main import ARTIFACTS, app, model_state, _risk_level_from_prob
+
+
 VALID_RECORD = {
     "grid_id": "G001",
     "elevation_m": 1420.0,
@@ -18,90 +19,101 @@ VALID_RECORD = {
     "plan_curvature": -0.002,
     "profile_curvature": -0.003,
     "twi": 8.5,
-    "dist_to_road_m": 800.0,
     "dist_to_stream_m": 320.0,
-    "land_cover_type": "Dense Forest",
-    "soil_type": "Weathered Gneiss & Mica Schist",
+    "land_cover_code": 10,
+    "soil_type_enc": 1,
+    "rainfall_1h_mm": 18.0,
+    "rainfall_3h_mm": 42.0,
+    "rainfall_6h_mm": 58.0,
+    "rainfall_12h_mm": 71.0,
     "rainfall_24h_mm": 85.0,
     "rainfall_3d_accum_mm": 210.0,
     "rainfall_7d_accum_mm": 420.0,
     "rainfall_intensity_mm_h": 12.5,
     "soil_moisture_pct": 72.0,
-    "historical_landslide_density": 0.36,
+    "historical_landslide_density": 2,
+}
+
+EXPECTED_FEATURES = {
+    "elevation_m", "slope_deg", "aspect_deg", "plan_curvature", "profile_curvature",
+    "twi", "dist_to_stream_m", "land_cover_code", "soil_type_enc", "rainfall_1h_mm",
+    "rainfall_3h_mm", "rainfall_6h_mm", "rainfall_12h_mm", "rainfall_24h_mm",
+    "rainfall_3d_accum_mm", "rainfall_7d_accum_mm", "rainfall_intensity_mm_h",
+    "soil_moisture_pct", "historical_landslide_density", "rain_moisture_index",
+    "slope_wetness_index", "rainfall_runoff_proxy",
 }
 
 
-def test_risk_level_thresholds():
-    from main import _risk_level_from_prob
-    thresholds = {"low_edge": 0.1884, "high_edge": 0.3647, "critical_edge": 0.6132}
-    assert _risk_level_from_prob(0.05, thresholds) == "Low"
-    assert _risk_level_from_prob(0.20, thresholds) == "Medium"
-    assert _risk_level_from_prob(0.40, thresholds) == "High"
-    assert _risk_level_from_prob(0.70, thresholds) == "Critical"
-    # Edge cases
-    assert _risk_level_from_prob(0.1884, thresholds) == "Medium"
-    assert _risk_level_from_prob(0.3647, thresholds) == "High"
-    assert _risk_level_from_prob(0.6132, thresholds) == "Critical"
+@pytest.fixture(scope="module")
+def client():
+    with TestClient(app) as test_client:
+        yield test_client
 
 
-def test_valid_land_cover_classes():
-    from main import LAND_COVER_CLASSES, FeatureInput
-    for cls in LAND_COVER_CLASSES:
-        rec = {**VALID_RECORD, "land_cover_type": cls}
-        fi = FeatureInput(**rec)
-        assert fi.land_cover_type == cls
+def test_risk_level_boundaries():
+    threshold = 0.46
+    assert _risk_level_from_prob(0.2799, threshold) == "Low"
+    assert _risk_level_from_prob(0.28, threshold) == "Moderate"
+    assert _risk_level_from_prob(threshold, threshold) == "High"
+    assert _risk_level_from_prob(0.75, threshold) == "Critical"
+    assert _risk_level_from_prob(0.7501, threshold) == "Critical"
 
 
-def test_invalid_land_cover_raises():
-    from pydantic import ValidationError
-    from main import FeatureInput
-    with pytest.raises(ValidationError):
-        FeatureInput(**{**VALID_RECORD, "land_cover_type": "Jungle"})
+def test_predict_accepts_full_record_and_returns_22_features(client):
+    response = client.post("/predict", json={"records": [VALID_RECORD]})
+
+    assert response.status_code == 200
+    predictions = response.json()["predictions"]
+    assert len(predictions) == 1
+    prediction = predictions[0]
+    assert prediction["grid_id"] == "G001"
+    assert 0.0 <= prediction["probability"] <= 1.0
+    assert prediction["risk_level"] in {"Low", "Moderate", "High", "Critical"}
+    assert set(prediction["features_used"]) == EXPECTED_FEATURES
 
 
-def test_valid_soil_types():
-    from main import SOIL_TYPE_CLASSES, FeatureInput
-    for st in SOIL_TYPE_CLASSES:
-        rec = {**VALID_RECORD, "soil_type": st}
-        fi = FeatureInput(**rec)
-        assert fi.soil_type == st
+def test_engineered_features_are_calculated_and_can_be_overridden(client):
+    calculated_response = client.post("/predict", json={"records": [VALID_RECORD]})
+    assert calculated_response.status_code == 200
+    calculated = calculated_response.json()["predictions"][0]["features_used"]
+    assert calculated["rain_moisture_index"] == pytest.approx(12.5 * 72.0)
+    assert calculated["slope_wetness_index"] == pytest.approx(38.5 * 72.0)
+    assert calculated["rainfall_runoff_proxy"] == pytest.approx(85.0 * 8.5)
+
+    explicit_record = {
+        **VALID_RECORD,
+        "rain_moisture_index": 123.0,
+        "slope_wetness_index": 456.0,
+        "rainfall_runoff_proxy": 789.0,
+    }
+    explicit_response = client.post("/predict", json={"records": [explicit_record]})
+    assert explicit_response.status_code == 200
+    explicit = explicit_response.json()["predictions"][0]["features_used"]
+    assert explicit["rain_moisture_index"] == 123.0
+    assert explicit["slope_wetness_index"] == 456.0
+    assert explicit["rainfall_runoff_proxy"] == 789.0
 
 
-def test_invalid_soil_raises():
-    from pydantic import ValidationError
-    from main import FeatureInput
-    with pytest.raises(ValidationError):
-        FeatureInput(**{**VALID_RECORD, "soil_type": "Rock"})
+def test_health_reports_loaded_model_and_artifact_threshold(client):
+    health = client.get("/health")
 
-
-def test_full_prediction_pipeline():
-    """Integration test: load artifacts and run a real prediction."""
-    from main import load_artifacts, model_state, _encode_and_predict, FeatureInput
-    load_artifacts()
+    assert health.status_code == 200
+    body = health.json()
+    assert body["loaded"] is True
     assert model_state["loaded"] is True
-
-    rec = FeatureInput(**VALID_RECORD)
-    results = _encode_and_predict([rec])
-
-    assert len(results) == 1
-    r = results[0]
-    assert 0.0 <= r.probability <= 1.0
-    assert r.risk_level in ("Low", "Medium", "High", "Critical")
-    assert r.grid_id == "G001"
-    print(f"\nPrediction: prob={r.probability:.4f}, risk={r.risk_level}")
+    assert body["features_count"] == 22
+    assert body["threshold"] == pytest.approx(float(joblib.load(ARTIFACTS["threshold"])))
 
 
-def test_batch_prediction():
-    """Test batch of 10 records (all pilot grid cells)."""
-    from main import load_artifacts, model_state, _encode_and_predict, FeatureInput
-    load_artifacts()
+def test_predict_batches_multiple_records(client):
+    records = [
+        {**VALID_RECORD, "grid_id": f"G{i:03d}", "slope_deg": 20.0 + i * 3}
+        for i in range(1, 4)
+    ]
+    response = client.post("/predict", json={"records": records})
 
-    records = [FeatureInput(**{**VALID_RECORD, "grid_id": f"G{i:03d}", "slope_deg": 20 + i * 3})
-               for i in range(1, 11)]
-    results = _encode_and_predict(records)
-
-    assert len(results) == 10
-    risk_levels = {r.risk_level for r in results}
-    print(f"\nBatch risk levels: {[r.risk_level for r in results]}")
-    # Should produce a spread (not necessarily all 4 levels, but valid)
-    assert risk_levels.issubset({"Low", "Medium", "High", "Critical"})
+    assert response.status_code == 200
+    predictions = response.json()["predictions"]
+    assert len(predictions) == len(records)
+    assert [prediction["grid_id"] for prediction in predictions] == [record["grid_id"] for record in records]
+    assert all(set(prediction["features_used"]) == EXPECTED_FEATURES for prediction in predictions)

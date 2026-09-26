@@ -70,9 +70,26 @@ export default function ZonePanel({ data, onClose }) {
       <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <span>🏔 {score.elevation}m</span>
         <span>📐 {score.slope_angle}°</span>
+        {score.dist_to_stream_m && <span style={{ color: '#38bdf8' }}>🌊 {score.dist_to_stream_m}m to stream</span>}
+        {score.twi && <span>💧 TWI: {score.twi}</span>}
         <span>🛣 {score.road_proximity_km}km to road</span>
         <span>🏘 {score.village_proximity_km}km to village</span>
       </div>
+
+      {/* SHAP / Model Explainability Drivers */}
+      {score.top_factors && score.top_factors.length > 0 && (
+        <div style={{ fontSize: '0.72rem', background: 'var(--bg-primary)', borderRadius: 8, padding: '8px 10px', marginBottom: 10, border: '1px solid rgba(56, 189, 248, 0.2)' }}>
+          <div style={{ color: '#38bdf8', fontWeight: 700, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: '0.62rem' }}>
+            ⚡ Top Model Drivers (22-Feature XGBoost)
+          </div>
+          {score.top_factors.map((f, i) => (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', marginBottom: 2 }}>
+              <span>• {f.name}</span>
+              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{f.weight?.toFixed(1)}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Sensor data */}
       {sensor && sensor.length > 0 && (

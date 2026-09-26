@@ -4,6 +4,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { getDB } from '../db/database.js';
 import { mlHealth } from '../services/mlClient.js';
+import { isRiskEngineFallbackActive } from '../services/riskEngine.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -66,26 +67,32 @@ router.get('/health', async (req, res) => {
 
     // ML model health (from ml-service /health — best effort, non-blocking)
     const mlStatus = await mlHealth();
+    const fallbackActive = isRiskEngineFallbackActive() || !mlStatus;
+    const predictorMode = fallbackActive ? 'fallback active' : 'primary';
 
     const mlCard = mlStatus
       ? {
           name: 'ML Model (XGBoost v2)',
-          status: 'Active',
+          status: predictorMode,
+          service_available: true,
           last_sync: lastScore,
           type: 'ml',
           model_version: 'v2',
-          roc_auc: mlStatus.metrics?.roc_auc_final_test,
-          accuracy: mlStatus.metrics?.accuracy_final_test,
-          recall: mlStatus.metrics?.recall_final_test,
+          roc_auc: mlStatus.test_metrics?.roc_auc,
+          accuracy: mlStatus.test_metrics?.accuracy,
+          recall: mlStatus.test_metrics?.recall,
           loaded_at: mlStatus.loaded_at,
           caveats: mlStatus.caveats,
+          threshold: mlStatus.threshold,
+          features_count: mlStatus.features_count,
         }
       : {
           name: 'ML Model (XGBoost v2)',
-          status: 'Unavailable',
+          status: predictorMode,
+          service_available: false,
           last_sync: null,
           type: 'ml',
-          note: 'ml-service is not running. Risk scoring is using rule-based fallback.',
+          note: 'ml-service is not running. Risk scoring uses the local XGBoost fallback.',
         };
 
     res.json({
@@ -100,8 +107,8 @@ router.get('/health', async (req, res) => {
           mlCard,
         ],
         stats: { total_readings: totalReadings, total_reports: totalReports, active_alerts: activeAlerts, last_risk_compute: lastScore },
-        ml_mode: mlStatus ? 'ml-xgboost-v2' : 'rule-based-fallback',
-        degraded_mode: !mlStatus,
+        ml_mode: predictorMode,
+        degraded_mode: fallbackActive,
       }
     });
   } catch (err) {

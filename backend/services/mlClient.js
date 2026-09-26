@@ -19,7 +19,7 @@ export class MlServiceError extends Error {
 
 /**
  * Run batch prediction on an array of feature objects.
- * @param {Array<Object>} records  — array of 16-feature objects (human-readable values)
+ * @param {Array<Object>} records  — array of 22-feature objects plus grid_id
  * @returns {Promise<Array<{ grid_id, probability, risk_level, model_version }>>}
  */
 export async function mlPredict(records) {

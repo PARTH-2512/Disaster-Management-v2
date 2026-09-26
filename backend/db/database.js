@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DB_PATH = join(__dirname, 'landslide.db');
+const DB_PATH = process.env.DATABASE_PATH || join(__dirname, 'landslide.db');
 
 let db;
 
@@ -32,11 +32,13 @@ export function initDB() {
       historical_incidents INTEGER DEFAULT 0,
       road_proximity_km REAL,
       village_proximity_km REAL,
-      aspect_deg REAL,
-      plan_curvature REAL,
-      profile_curvature REAL,
-      twi REAL,
-      dist_to_stream_m REAL,
+      dist_to_stream_m REAL DEFAULT 150.0,
+      twi REAL DEFAULT 11.5,
+      aspect_deg REAL DEFAULT 180.0,
+      plan_curvature REAL DEFAULT 0.0,
+      profile_curvature REAL DEFAULT 0.0,
+      land_cover_code INTEGER DEFAULT 10,
+      soil_type_enc INTEGER DEFAULT 1,
       land_cover_type TEXT,
       soil_type TEXT
     );
@@ -46,7 +48,13 @@ export function initDB() {
       grid_id TEXT NOT NULL,
       timestamp TEXT NOT NULL,
       rainfall_1h_mm REAL DEFAULT 0,
+      rainfall_3h_mm REAL DEFAULT 0,
+      rainfall_6h_mm REAL DEFAULT 0,
+      rainfall_12h_mm REAL DEFAULT 0,
       rainfall_24h_mm REAL DEFAULT 0,
+      rainfall_3d_accum_mm REAL DEFAULT 0,
+      rainfall_7d_accum_mm REAL DEFAULT 0,
+      rainfall_intensity_mm_h REAL DEFAULT 0,
       soil_moisture REAL DEFAULT 0,
       temperature_c REAL,
       humidity_pct REAL,
@@ -66,7 +74,8 @@ export function initDB() {
       risk_level TEXT NOT NULL,
       primary_factor TEXT,
       ml_probability REAL,
-      model_version TEXT
+      model_version TEXT,
+      threshold REAL DEFAULT 0.460
     );
 
     CREATE TABLE IF NOT EXISTS alerts (
@@ -130,14 +139,15 @@ export function initDB() {
     );
   `);
 
-  // Seed admin config
+  // Seed admin config with saved model threshold 0.460 and SIH 26192 weights
   const cfgItems = [
-    ['risk_threshold_medium', '30'],
-    ['risk_threshold_high', '55'],
+    ['risk_threshold_flash_flood', '0.460'],
+    ['risk_threshold_medium', '28'],
+    ['risk_threshold_high', '46'],
     ['risk_threshold_critical', '75'],
-    ['weight_rainfall', '0.35'],
+    ['weight_rainfall', '0.40'],
     ['weight_soil', '0.25'],
-    ['weight_slope', '0.20'],
+    ['weight_slope', '0.15'],
     ['weight_historical', '0.12'],
     ['weight_citizen', '0.08'],
     ['alert_sms_enabled', 'false'],
@@ -147,62 +157,23 @@ export function initDB() {
     db.prepare('INSERT OR IGNORE INTO admin_config(key,value,updated_at) VALUES (?,?,?)').run(k, v, new Date().toISOString());
   }
 
-  // Safe schema migration — add new columns if they don't exist yet (idempotent)
-  const newGridColumns = [
-    ['aspect_deg',       'REAL'],
-    ['plan_curvature',   'REAL'],
-    ['profile_curvature','REAL'],
-    ['twi',              'REAL'],
-    ['dist_to_stream_m', 'REAL'],
-    ['land_cover_type',  'TEXT'],
-    ['soil_type',        'TEXT'],
-  ];
-  const existingGridCols = db.prepare("PRAGMA table_info(grid_cells)").all().map(r => r.name);
-  for (const [col, type] of newGridColumns) {
-    if (!existingGridCols.includes(col)) {
-      db.exec(`ALTER TABLE grid_cells ADD COLUMN ${col} ${type}`);
-    }
-  }
-
-  const newScoreColumns = [
-    ['ml_probability', 'REAL'],
-    ['model_version',  'TEXT'],
-  ];
-  const existingScoreCols = db.prepare("PRAGMA table_info(risk_scores)").all().map(r => r.name);
-  for (const [col, type] of newScoreColumns) {
-    if (!existingScoreCols.includes(col)) {
-      db.exec(`ALTER TABLE risk_scores ADD COLUMN ${col} ${type}`);
-    }
-  }
-
-  // Seed grid cells from JSON (includes new ML feature fields)
+  // Seed grid cells from JSON (with all 22 feature attributes)
   const gridData = JSON.parse(readFileSync(join(__dirname, '../data/districts.json'), 'utf8'));
   for (const c of gridData.grid_cells) {
     db.prepare(`
-      INSERT OR IGNORE INTO grid_cells(
+      INSERT OR REPLACE INTO grid_cells(
         id, district, lat, lng, slope_angle, elevation, geology, land_use,
         historical_incidents, road_proximity_km, village_proximity_km,
-        aspect_deg, plan_curvature, profile_curvature, twi, dist_to_stream_m,
-        land_cover_type, soil_type
-      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        dist_to_stream_m, twi, aspect_deg, plan_curvature, profile_curvature,
+        land_cover_code, soil_type_enc, land_cover_type, soil_type
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       c.id, c.district, c.lat, c.lng, c.slope_angle, c.elevation, c.geology, c.land_use,
       c.historical_incidents, c.road_proximity_km, c.village_proximity_km,
-      c.aspect_deg ?? null, c.plan_curvature ?? null, c.profile_curvature ?? null,
-      c.twi ?? null, c.dist_to_stream_m ?? null,
-      c.land_cover_type ?? null, c.soil_type ?? null
-    );
-    // Update existing rows with new ML fields if they were previously seeded without them
-    db.prepare(`
-      UPDATE grid_cells SET
-        aspect_deg=?, plan_curvature=?, profile_curvature=?, twi=?,
-        dist_to_stream_m=?, land_cover_type=?, soil_type=?
-      WHERE id=? AND (aspect_deg IS NULL OR land_cover_type IS NULL)
-    `).run(
-      c.aspect_deg ?? null, c.plan_curvature ?? null, c.profile_curvature ?? null,
-      c.twi ?? null, c.dist_to_stream_m ?? null,
-      c.land_cover_type ?? null, c.soil_type ?? null,
-      c.id
+      c.dist_to_stream_m ?? 120.0, c.twi ?? 12.0, c.aspect_deg ?? 180.0,
+      c.plan_curvature ?? 0.0, c.profile_curvature ?? 0.0,
+      c.land_cover_code ?? 10, c.soil_type_enc ?? 1,
+      c.land_use, c.geology
     );
   }
 
@@ -217,6 +188,6 @@ export function initDB() {
     db.prepare('INSERT OR IGNORE INTO users(id,name,role,district,phone,created_at) VALUES (?,?,?,?,?,?)').run(id, name, role, district, phone, new Date().toISOString());
   }
 
-  console.log('[DB] Database initialized successfully');
+  console.log('[DB] Database initialized successfully for Flash Flood Early Warning (SIH 26192)');
   return db;
 }
